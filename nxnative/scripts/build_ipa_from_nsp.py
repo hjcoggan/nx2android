@@ -439,6 +439,9 @@ def title_of(path, hk=None):
             tids += [t for n, o in files if n.endswith(('.nca', '.ncz')) and (t := meta_title(f, o, hk)) is not None]
         if tids:
             tids = sorted(set(tids))   # several rights IDs can name the same title
+            # a merged cartridge (Dave: base + update + DLC + an art book of a smaller title ID) is the title its file name tags
+            m = re.search(r'\[([0-9A-Fa-f]{16})\]', path.name)
+            if m and int(m.group(1), 16) in tids: tids.insert(0, tids.pop(tids.index(int(m.group(1), 16))))
             if len(tids) > 1:
                 say(f'[RED] {path.name}: multiple titles in one file; using {tids[0]:016X}. '
                     f'Other titles ({", ".join(f"{t:016X}" for t in tids[1:])}) are not selected as updates or DLC '
