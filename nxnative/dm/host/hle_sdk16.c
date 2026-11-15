@@ -132,6 +132,9 @@ static font_t font_get(int type) {
                      // screen (the button at the top left of a room) waited for it for good: the game froze at the "[RED] cannot open the standard shared font" line
                      if (!std_f.p) std_f = font_first("DM_SHARED_FONT", "standard.ttf", "/system/fonts/RobotoStatic-Regular.ttf");
                      if (!std_f.p) std_f = font_first("DM_SHARED_FONT", "standard.ttf", "/system/fonts/Roboto-Regular.ttf");
+#elif defined(DM_LINUX)
+                     if (!std_f.p) std_f = font_first("DM_SHARED_FONT", "standard.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
+                     if (!std_f.p) std_f = font_first("DM_SHARED_FONT", "standard.ttf", "/usr/share/fonts/liberation/LiberationSans-Regular.ttf");
 #else
                      if (!std_f.p) std_f = font_first("DM_SHARED_FONT", "standard.ttf", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf");
 #endif

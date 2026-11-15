@@ -118,7 +118,7 @@ static Result mount_ex(const char *name, const char *dir, int ro, int txn) {
         else if (e == ENOENT) ;   // a game with no RomFS of its own, or a stand-in that is not there: lookups answer "not found" as they should
         else if (!stat(dir, &st))
             LOG("[RED] fs mount %s: %s cannot be listed (errno=%d; owner uid %u gid %u mode %o, the host runs as uid %u): exact paths are looked up without listing, directory listings fail"
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(DM_LINUX)
                 "; most likely the data pack went into a folder the app did not make -- install again with the porter (it has the app make the folder), or uninstall the app, install it, start it once, then push the data"
                 "; a RomFS outside the app's files folder (porter install --romfs-at) needs All files access, and a folder its owner made unreadable to other apps cannot be read with it either"
 #endif
