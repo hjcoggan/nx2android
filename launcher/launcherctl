@@ -1,0 +1,19 @@
+#!/bin/sh
+# launcherctl start|stop|restart|es: the Flip 2 launcher supervisor (supervisor.sh) in place of EmulationStation, or EmulationStation back.
+DIR="$(cd "$(dirname "$0")" && pwd)"; PID=/run/nx2l-supervisor.pid
+stop() {
+  [ -f "$PID" ] && kill "$(cat "$PID")" 2>/dev/null; rm -f "$PID"
+  for p in $(pidof pocket-flip2); do kill -TERM "$p"; done
+  sleep 1
+}
+start() {
+  systemctl stop essway.service sway.service 2>/dev/null
+  setsid "$DIR/supervisor.sh" >/dev/null 2>&1 < /dev/null & echo $! > "$PID"
+}
+case "$1" in
+  start) start ;;
+  stop) stop ;;
+  restart) stop; start ;;
+  es) stop; systemctl start sway.service essway.service ;;
+  *) echo "usage: $0 start|stop|restart|es"; exit 2 ;;
+esac
