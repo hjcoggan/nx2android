@@ -1,7 +1,7 @@
 // Linux build: an AudioUnit output unit on an SDL3 audio stream (dm/android/compat/include/AudioToolbox/AudioToolbox.h), the counterpart of
 // dm/android/compat/audiotoolbox_aaudio.c. SDL asks for more data on its own thread; the unit's render callback fills it in the unit's format
 // (interleaved 16-bit or float PCM at its rate and channel count), so the host's pull code (hle_audio.c pull_device) is unchanged.
-// AudioConverter (AAC → PCM, movies' sound) has no decoder yet: AudioConverterNew fails and those movies play silent.
+// AudioConverter (AAC → PCM, movies' sound) is in ffmpeg_linux.c.
 #include <AudioToolbox/AudioToolbox.h>
 #include <SDL3/SDL.h>
 #include <sched.h>
@@ -89,10 +89,3 @@ OSStatus AudioOutputUnitStop(AudioUnit u) {
 static void close_stream(AudioUnit u) { if (u->st) { SDL_DestroyAudioStream(u->st); u->st = NULL; } }
 OSStatus AudioUnitUninitialize(AudioUnit u) { close_stream(u); return noErr; }
 OSStatus AudioComponentInstanceDispose(AudioComponentInstance u) { if (u) { close_stream(u); free(u->buf); free(u); } return noErr; }
-
-OSStatus AudioConverterNew(const AudioStreamBasicDescription *in, const AudioStreamBasicDescription *out, AudioConverterRef *c) { (void)in; (void)out; *c = NULL; return kAudio_UnimplementedError; }
-OSStatus AudioConverterDispose(AudioConverterRef c) { (void)c; return noErr; }
-OSStatus AudioConverterSetProperty(AudioConverterRef c, AudioConverterPropertyID id, UInt32 size, const void *data) { (void)c; (void)id; (void)size; (void)data; return kAudio_UnimplementedError; }
-OSStatus AudioConverterFillComplexBuffer(AudioConverterRef c, AudioConverterComplexInputDataProc proc, void *ud, UInt32 *packets, AudioBufferList *out, AudioStreamPacketDescription *desc) {
-    (void)c; (void)proc; (void)ud; (void)out; (void)desc; *packets = 0; return kAudio_UnimplementedError;
-}

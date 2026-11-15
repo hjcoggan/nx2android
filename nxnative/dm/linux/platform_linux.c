@@ -1,9 +1,7 @@
 // Linux build: what the Android-only sources of dm/android provide, where Linux has nothing to do or nothing yet.
 //   AAsset: the APK's assets as files under $DM_ROOT/assets.
 //   Performance hints (perf_android.c): none.
-//   H.264 movies (movie_avc.c, MediaCodec): no decoder yet; each access unit gives a black picture, so a movie plays out its length and the game goes on.
 #include "dm.h"
-#include "hle_movie_avc.h"
 #include <android/asset_manager.h>
 #include <android/hardware_buffer.h>
 #include <android/native_window.h>
@@ -33,24 +31,3 @@ void dm_perf_frame(double period) { (void)period; }
 void dm_perf_frame_cost(int64_t replay_ns, int64_t gpu_ns) { (void)replay_ns; (void)gpu_ns; }
 void dm_perf_gpu_release(void) {}
 void dm_perf_game_mode(int mode) { (void)mode; }
-
-#define QMAX 16
-struct mavc { int64_t q[QMAX]; int nq, rgba; };
-mavc *mavc_new(void) { mavc *a = calloc(1, sizeof *a); if (!a) die("movie: AVC decoder allocation failed"); LOG("[RED] movie: no H.264 decoder on Linux yet: black pictures"); return a; }
-void mavc_drop(mavc *a) { a->nq = 0; }
-void mavc_free(mavc *a) { free(a); }
-int mavc_queued(const mavc *a) { return a->nq; }
-int mavc_held(const mavc *a) { return a->nq; }
-void mavc_set_rgba(mavc *a) { a->rgba = 1; }
-void mavc_param_sets(mavc *a, const uint8_t *p, size_t n) { (void)a; (void)p; (void)n; }
-void mavc_avcc(mavc *a, const uint8_t *p, size_t n) { (void)a; (void)p; (void)n; }
-int mavc_decode(mavc *a, const uint8_t *p, int n, int64_t pts_us) { (void)p; if (n > 0 && a->nq < QMAX) a->q[a->nq++] = pts_us; return 0; }
-int mavc_take(mavc *a, int flush, uint8_t *dst, int w, int h, int64_t *pts_us) {
-    (void)flush;
-    if (!a->nq) return 0;
-    if (pts_us) *pts_us = a->q[0];
-    memmove(a->q, a->q + 1, (size_t)--a->nq * sizeof a->q[0]);
-    if (a->rgba) for (size_t i = 0; i < (size_t)w * h; i++) ((uint32_t *)dst)[i] = 0xff000000u;
-    else { memset(dst, 16, (size_t)w * h); memset(dst + (size_t)w * h, 128, (size_t)w * h / 2); }
-    return 1;
-}

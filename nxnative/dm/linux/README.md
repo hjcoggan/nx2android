@@ -27,8 +27,9 @@ dmhost <data dir> [-- game arguments]
 
 On ROCKNIX, copy `launch.sh` to `/storage/roms/ports/<Game>.sh` and set `DATA` in it. It runs in EmulationStation's sway session and writes `log.txt` in the data folder.
 
-- Controllers are mapped by position (the bottom face button is B, the right one A). Guide + Start quits.
-- The keyboard works for desktop runs: arrows, Z/X = B/A, A/S = Y/X, Q/W = L/R, 1/2 = ZL/ZR, Enter = +, Backspace = -, Esc quits.
+- Controllers are mapped by position (the bottom face button is B, the right one A); the pause menu switches to labels. Guide opens the pause menu, Guide + Start quits.
+- The keyboard works for desktop runs: arrows, Z/X = B/A, A/S = Y/X, Q/W = L/R, 1/2 = ZL/ZR, Enter = +, Backspace = -, Esc opens the pause menu, F10 quits.
+- `launch.sh` sets the big cores' governor to `performance` while the game runs (`GOVERNOR=` to leave it) and puts it back when the game ends.
 - `DM_WINDOWED=1` opens a 1280x720 window instead of fullscreen. `DM_HEADLESS=1` runs with no window (frames counted only, `DM_VK_SHOT`).
 - `env.txt` in the data folder holds `KEY=VALUE` switches, as on Android.
 
@@ -40,6 +41,7 @@ On ROCKNIX, copy `launch.sh` to `/storage/roms/ports/<Game>.sh` and set `DATA` i
 | Memory pools | zero-copy through AHardwareBuffer | zero-copy through Vulkan memory exported as a dma-buf (`ahb_vk.c`) |
 | Window, input | NativeActivity | SDL3 |
 | Audio | AAudio | SDL3 audio stream |
-| H.264 movies | MediaCodec | black pictures (no decoder yet) |
-| AAC | MediaCodec | none (silent) |
-| On-screen gamepad, pause menu, text entry | yes | not yet |
+| H.264 movies, AAC | MediaCodec | the system's FFmpeg, loaded at run time (`ffmpeg_linux.c`) |
+| Pause menu, text entry | touch and controller | controller and keyboard (rumble, face buttons, frame rate, docked mode) |
+| Rumble | Vibrator | SDL gamepad rumble, both motors |
+| On-screen gamepad, save manager | yes | not yet |
