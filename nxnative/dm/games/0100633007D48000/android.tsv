@@ -1,0 +1,5 @@
+# Hollow Knight on Android and Linux (keys in docs/ARCHITECTURE.md "Game profiles on Android")
+# Profile from seedds/nxnative (tested on the Mac: README.md). Not yet run on an Android or Linux device.
+status	experimental
+package	org.nx2a.hollowknight
+orientation	landscape
