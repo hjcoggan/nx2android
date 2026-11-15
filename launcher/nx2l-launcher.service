@@ -1,6 +1,6 @@
 # The Flip 2 launcher in place of EmulationStation (launcherctl enable: /storage/.config/system.d/, with profile.d/099-nx2l naming it ROCKNIX's UI_SERVICE)
 [Unit]
-Description=nx2linux PocketJS launcher
+Description=nx2linux launcher (MyGo, sway)
 After=rocknix-automount.service
 Conflicts=essway.service sway.service
 
@@ -8,7 +8,7 @@ Conflicts=essway.service sway.service
 Type=simple
 Environment=HOME=/storage
 Environment=XDG_RUNTIME_DIR=/var/run/0-runtime-dir
-ExecStart=/storage/nx2linux/launcher/supervisor.sh
+ExecStart=/storage/nx2linux/launcher/session.sh
 WorkingDirectory=/storage
 Restart=always
 RestartSec=2
