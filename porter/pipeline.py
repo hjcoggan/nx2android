@@ -36,6 +36,7 @@ class Options:
     app_name: str = ''                 # the launcher label (default: the game's name in its control data)
     install: bool = False              # install on the device after packing
     device: str = ''                   # adb serial
+    ssh: str = ''                      # user@host: the game's own Oodle decoder runs on an arm64 Linux device over SSH (the Linux host, dm/linux), not on an adb device
     replace_signer: bool = False       # uninstall an app of the same package signed with another key
     debug: bool = False                # a development build: debug information, debuggable, DM_CTL
     experimental: bool = False         # a game not ported to Android yet: a provisional profile from upstream's survey (or a copy of its iOS profile), status experimental
@@ -461,7 +462,14 @@ class Port:
         # Unreal paks (version 11) and IoStore containers: their shader code archives are decoded with the game's own Oodle on the device too (device_ue)
         self.ue_why = src['ue_decode'][1] if src['ue_decode'][0] else ''
         why = self.oodle_why or self.ue_why
-        if why:
+        if why and self.o.ssh:   # the Linux host on a Linux device (porter/ssh.py)
+            from porter.ssh import SshDevice, SshError, linux_host
+            if not linux_host(DM, self.g.id).exists():
+                raise BuildError(f"{self.app_name}'s shaders are in Oodle-compressed archives ({why}): --ssh runs the decoder in the Linux host, which is not built: "
+                                 f"python3 nxnative/dm/linux/build.py --game {self.g.id} (dm/linux/README.md)")
+            try: SshDevice(self.o.ssh, log=say).pick()
+            except SshError as e: raise BuildError(f"{self.app_name}'s shaders are in Oodle-compressed archives ({why}): {self.o.ssh} does not answer ({e})") from e
+        elif why:
             if not self.tools.get('adb'):   # adb is optional for a port that does not install (toolchain.require): this one needs it
                 raise BuildError(f"{self.app_name}'s shaders are in Oodle-compressed archives ({why}): the port decodes them with the game's own decoder on the Android "
                                  f'device, so it needs adb and the device even without installing. {NO_ADB}; then connect the device (USB debugging on) and port again')
@@ -473,6 +481,8 @@ class Port:
 
     # ---- the game's own Oodle decoder on the device, for the shader split (Pokémon Legends: Arceus's GFPAKs, Pokémon Legends: Z-A's Trinity packs) ----
     ODEV = '/data/local/tmp/nx2a-oodle'   # dmhost, the rewritten modules and the job, removed afterwards
+    ODEV_LINUX = '/storage/nx2a-oodle'    # the same on a Linux device (ROCKNIX's writable partition)
+    def odev(self): return self.ODEV_LINUX if self.o.ssh else self.ODEV
     def device_oodle(self):
         """The Mac host's Oodle tool mode runs in the Android host as well (dm/host/hle_oodle.c DM_OODLE_JOB): the host built as an executable (build.py --exe) runs on the device
         with the rewritten modules and decodes with the game's own OodleLZ_Decompress, the same ARM64 code the Switch runs. Every Oodle entry of the GFPAKs and of the Trinity packs goes
@@ -543,6 +553,13 @@ class Port:
         """One Oodle job file (hle_oodle.c: "DMOJ" records) decoded on the device into out ("DMOR"); the job file is removed. The host as an executable and the rewritten modules
         go to the device once a port (device_oodle_end removes them). bnsh: only the entries that hold a BNSH shader come back (DM_OODLE_JOB_BNSH)"""
         adb = getattr(self, 'oodle_adb', None)
+        odev = self.odev()
+        if not adb and self.o.ssh:   # a Linux device: the Linux host (built beforehand) with the rewritten modules under odev/mods, run as `dmhost odev` headless
+            from porter.ssh import SshDevice, linux_host
+            adb = SshDevice(self.o.ssh, log=say); adb.pick()
+            adb.shell(f'rm -rf {odev}; mkdir -p {odev}/mods', check=False)
+            adb.push_file(linux_host(DM, self.g.id), f'{odev}/dmhost'); adb.push_tree(self.patched, f'{odev}/mods')
+            self.oodle_adb = adb
         if not adb:
             adb = Adb(self.tools['adb'], self.o.device or self.cfg.get('device'), log=say); adb.pick()
             host = self.aw / ('host-debug' if self.o.debug else 'host')   # the host stage's own folder: its objects serve both
@@ -552,14 +569,15 @@ class Port:
             adb.shell(f'rm -rf {self.ODEV}; mkdir -p {self.ODEV}/mods', check=False)
             adb.push_file(host / 'dmhost', f'{self.ODEV}/dmhost'); adb.push_tree(self.patched, f'{self.ODEV}/mods')
             self.oodle_adb = adb
-        adb.push_file(job, f'{self.ODEV}/job.bin'); nsp.rmtree(job)
+        adb.push_file(job, f'{odev}/job.bin'); nsp.rmtree(job)
         # (the device's timeout ends the decoder before adb gives up, so no decoder is left running and holding memory on the device)
-        r = adb.shell(f'chmod 755 {self.ODEV}/dmhost; cd {self.ODEV} && rm -f job.bin.out && DM_OODLE_JOB={self.ODEV}/job.bin{" DM_OODLE_JOB_BNSH=1" if bnsh else ""} timeout 3300 ./dmhost mods '
+        run = 'DM_HEADLESS=1 timeout 3300 ./dmhost .' if self.o.ssh else 'timeout 3300 ./dmhost mods'   # the Linux host takes the data folder and finds mods/ in it
+        r = adb.shell(f'chmod 755 {odev}/dmhost; cd {odev} && rm -f job.bin.out && DM_OODLE_JOB={odev}/job.bin{" DM_OODLE_JOB_BNSH=1" if bnsh else ""} {run} '
                       f'> job.log 2>&1; echo "exit $?"; grep -a -e DM_OODLE_JOB -e RED job.log | tail -5', timeout=3600)
         (self.logs / 'android_oodle_job.log').write_text(r, encoding='utf-8')
         if 'exit 0' not in r: raise BuildError(f"the game's Oodle decoder on the device failed (see {self.logs / 'android_oodle_job.log'})")
-        adb.run('pull', f'{self.ODEV}/job.bin.out', str(out), timeout=1800)
-        adb.shell(f'rm -f {self.ODEV}/job.bin {self.ODEV}/job.bin.out', check=False)
+        adb.run('pull', f'{odev}/job.bin.out', str(out), timeout=1800)
+        adb.shell(f'rm -f {odev}/job.bin {odev}/job.bin.out', check=False)
 
     # ---- Unreal Engine shader code archives decoded with the game's own Oodle on the device (the Mac does it in decode_ue_shaders) ----
     UE_ROUNDS = 4
@@ -621,8 +639,8 @@ class Port:
         adb = getattr(self, 'oodle_adb', None)
         if not adb: return
         self.oodle_adb = None
-        try: adb.shell(f'rm -rf {self.ODEV}', check=False)
-        except AdbError as e: say(f'the Oodle decoder left on the device ({e}): {self.ODEV}')
+        try: adb.shell(f'rm -rf {self.odev()}', check=False)
+        except Exception as e: say(f'the Oodle decoder left on the device ({e}): {self.odev()}')
 
     # ---- 60 fps (--fps60): the profile's own cap (fps_target: frame-step stubs or hle_fpslock.c's rows), else the community's FPSLocker config of the build ----
     def fps_unlock(self):
