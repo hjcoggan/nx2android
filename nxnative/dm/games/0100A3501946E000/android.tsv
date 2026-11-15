@@ -1,0 +1,5 @@
+# OCTOPATH TRAVELER II on Android and Linux (keys in docs/ARCHITECTURE.md "Game profiles on Android")
+# Profile from seedds/nxnative (brought up on the Mac: README.md). Not yet run on an Android or Linux device.
+status	experimental
+package	org.nx2a.octopathtraveler2
+orientation	landscape
