@@ -491,7 +491,15 @@ typedef struct slab_t { struct slab_t *next; AHardwareBuffer *ahb; int fd; uint8
                         uint64_t bits[SLAB_SLOTS / 64], fence[SLAB_SLOTS]; } slab_t;   // bits: 1 = slot free; fence: the submission the GPU must have passed before it is taken
 static slab_t *g_slab[SLAB_NCLS]; static pthread_mutex_t g_slab_mu = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t g_slab_used, g_slab_bytes;   // pools placed in slabs so far, slab memory (under g_slab_mu: the pool line)
-static int slab_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_VK_POOL_SLABS"); v = !(e && !atoi(e)); } return v; }
+// Linux (msm, kernel 7.2): an mmap of a dma-buf maps the buffer from its start whatever the offset (msm_gem_fault takes the page from the address's distance to the
+// mapping's start, not from vm_pgoff; dm/linux/probes/dmabuf_offset.c), so a slot mapped at its offset in the slab was the slab's first pages: every small pool of a
+// slab shared one slot's memory and Hades II drew nothing. Slabs are off there (DM_VK_POOL_SLABS=1 for a kernel that maps offsets)
+#ifdef DM_LINUX
+#define DM_ZC_OFFSETS 0
+#else
+#define DM_ZC_OFFSETS 1
+#endif
+static int slab_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_VK_POOL_SLABS"); v = e && *e ? atoi(e) != 0 : DM_ZC_OFFSETS; } return v; }
 static slab_t *slab_new(int c) {   // a slab of class c, allocated and imported (no lock held)
     uint64_t sb = (uint64_t)SLAB_PAGES[c] << 12; uint32_t n = 64;
     if (sb * n < (2u << 20)) n = (uint32_t)((2u << 20) / sb); if (sb * n > (8u << 20)) n = (uint32_t)((8u << 20) / sb); if (n > SLAB_SLOTS) n = SLAB_SLOTS;
@@ -690,6 +698,7 @@ int vk_pool_remap_ro(void *mem, size_t len) {
                 uint64_t ql = q->lo > a ? q->lo : a, qh = q->hi < p->hi ? q->hi : p->hi;
                 if (ql < lo) { lo = ql; hi = qh; } else if (ql == lo && qh > hi) hi = qh;
             }
+            if (lo > a && !DM_ZC_OFFSETS && a - p->lo + p->boff) { rc = -1; break; }   // a piece past an inner pool: no offset mapping here (slab_on)
             if (lo > a) { void *at = (void *)(uintptr_t)a; rc = mmap(at, lo - a, PROT_READ, MAP_SHARED | MAP_FIXED, fd, (off_t)(a - p->lo + p->boff)) == at ? 0 : -1; mapped |= !rc; }
             a = hi;
         }
@@ -740,7 +749,8 @@ static uint64_t g_zc_bytes, g_cp_bytes, g_lazy_total, g_lazy_bytes, g_used_bytes
 // and are backed when made).
 // DM_VK_ZEROCOPY_LAZY: 0, none; 1, also the chunks of pools over ZC_CHUNK (Pokopia on the Thor; the big pools of Xenoblade Chronicles 3, Tears of the Kingdom and
 // 13 Sentinels are not measured with it); 2, every page-aligned pool on any device. Unset: none, or the pools of one chunk where the CPU reads hardware buffers uncached
-static int zc_lazy_mode(void) { static int v = -2; if (v == -2) { const char *e = getenv("DM_VK_ZEROCOPY_LAZY"); v = e && *e ? atoi(e) : -1; } return v; }
+// (Linux: off unless asked for. A lazy pool is swapped 16 MB at a time, and its slices past the first map the dma-buf at an offset, which msm ignores: see slab_on)
+static int zc_lazy_mode(void) { static int v = -2; if (v == -2) { const char *e = getenv("DM_VK_ZEROCOPY_LAZY"); v = e && *e ? atoi(e) : DM_ZC_OFFSETS ? -1 : 0; } return v; }
 // Where the CPU reads hardware buffers uncached, the pools of one chunk are lazy (DM_VK_ZEROCOPY_LAZY unset or 1): a pool the GPU never uses (command memory, shader code,
 // texture and sampler descriptors, which the replay reads and the GPU does not) keeps the CPU's cached pages, and one it uses is backed the first time. On a Retroid
 // Pocket 5 (Adreno 650, Android 13, kernel 4.19) every BLOB hardware buffer, whatever its CPU usage, and every Vulkan memory type, HOST_CACHED included, read at
