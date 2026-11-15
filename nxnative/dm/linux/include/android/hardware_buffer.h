@@ -1,5 +1,4 @@
-// Linux build: the AHardwareBuffer calls the Vulkan backend makes for zero-copy pools (gfx_vk_core.c). There is no allocator behind them
-// (android_shim.c): every allocation fails, and each pool takes the copied path, as on an Android device whose allocator refuses.
+// Linux build: the AHardwareBuffer calls the Vulkan backend makes for zero-copy pools (gfx_vk_core.c), on Vulkan memory exported as a dma-buf (ahb_vk.c).
 #pragma once
 #include <stdint.h>
 typedef struct AHardwareBuffer AHardwareBuffer;

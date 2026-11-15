@@ -1,5 +1,4 @@
 // Linux build: what the Android-only sources of dm/android provide, where Linux has nothing to do or nothing yet.
-//   AHardwareBuffer: no allocator, so every memory pool takes the copied path (gfx_vk_core.c). A dma-buf export from the Vulkan driver is the Linux counterpart, not done yet.
 //   AAsset: the APK's assets as files under $DM_ROOT/assets.
 //   Performance hints (perf_android.c): none.
 //   H.264 movies (movie_avc.c, MediaCodec): no decoder yet; each access unit gives a black picture, so a movie plays out its length and the game goes on.
@@ -12,10 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-int AHardwareBuffer_allocate(const AHardwareBuffer_Desc *desc, AHardwareBuffer **out) { (void)desc; *out = NULL; return -1; }
-void AHardwareBuffer_release(AHardwareBuffer *b) { (void)b; }
-int AHardwareBuffer_sendHandleToUnixSocket(const AHardwareBuffer *b, int fd) { (void)b; (void)fd; return -1; }
 
 struct AAsset { uint8_t *p; size_t n, at; };
 AAsset *AAssetManager_open(AAssetManager *m, const char *name, int mode) {

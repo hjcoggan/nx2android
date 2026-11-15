@@ -37,7 +37,7 @@ On ROCKNIX, copy `launch.sh` to `/storage/roms/ports/<Game>.sh` and set `DATA` i
 | | Android | Linux |
 |---|---|---|
 | Thread slots | bionic's `TLS_SLOT_APP` (`tpidr_el0[2]`) | `tls_slot.c` holds the same word: the first word of the executable's TLS block |
-| Memory pools | zero-copy through AHardwareBuffer | copied (no allocator yet; a Turnip dma-buf export is the counterpart) |
+| Memory pools | zero-copy through AHardwareBuffer | zero-copy through Vulkan memory exported as a dma-buf (`ahb_vk.c`) |
 | Window, input | NativeActivity | SDL3 |
 | Audio | AAudio | SDL3 audio stream |
 | H.264 movies | MediaCodec | black pictures (no decoder yet) |
