@@ -1,10 +1,11 @@
 # Flip 2 launcher (prototype)
 
-A PocketJS launcher in place of EmulationStation on ROCKNIX (Retroid Pocket Flip 2). It lists Hollow Knight: Silksong (nx2linux) and RetroArch.
+A PocketJS launcher in place of EmulationStation on ROCKNIX (Retroid Pocket Flip 2). It lists Hollow Knight: Silksong and Hollow Knight (nx2linux, through `/storage/nx2linux/launch.sh` with `DATA=/storage/nx2linux/<game>`) and RetroArch.
 
 - `pocket-flip2`: the PocketJS program, built from the `flip2-launcher` branch of a PocketJS clone (`programs/flip2`, app `apps/flip2-launcher`). It draws on the DSI panel through DRM/KMS; the panel is mounted on its side, so the program turns each damaged rectangle onto it (`--rotate ccw`).
 - `supervisor.sh`: runs the launcher until it prints `NX2L LAUNCH <id>`, ends it, runs the game in a sway session of its own (`sway-game.conf`) and starts the launcher again when the game exits.
-- `launcherctl start|stop|restart|es`: starts the supervisor in place of EmulationStation and sway, or brings EmulationStation back. Nothing survives a reboot yet: ROCKNIX starts EmulationStation again.
+- `nx2l-launcher.service`: the supervisor as a systemd unit; it conflicts with `sway.service` and `essway.service`.
+- `launcherctl enable|disable|start|stop|es`: `enable` copies the unit to `/storage/.config/system.d` and writes `/storage/.config/profile.d/099-nx2l`, which sets ROCKNIX's `UI_SERVICE` to it, so `/usr/bin/autostart` starts the launcher at boot instead of sway and EmulationStation; `disable` removes both. `es` starts EmulationStation now (stopping the launcher).
 
 Device folder: `/storage/nx2linux/launcher` (these files, `pocket-flip2`, `launcher.pocket`; log in `supervisor.log`).
 

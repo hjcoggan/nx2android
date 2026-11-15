@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Flip 2 launcher supervisor (ROCKNIX), in place of EmulationStation and its sway session.
 # Loop: the PocketJS launcher owns the display (DRM) until it prints "NX2L LAUNCH <id>"; the supervisor ends it, runs the game in a sway session of
 # its own (sway-game.conf, which exits sway when the game ends) and starts the launcher again.
@@ -6,13 +6,15 @@
 DIR="${DIR:-$(cd "$(dirname "$0")" && pwd)}"
 LOG="$DIR/supervisor.log"
 ROTATE="${ROTATE:-ccw}"   # the panel is mounted so that sway uses transform 270
+. /etc/profile   # ROCKNIX's environment, as EmulationStation gets it
 export HOME=/storage XDG_RUNTIME_DIR=/var/run/0-runtime-dir NX2L_DRM_STATS="${NX2L_DRM_STATS-}"
 mkdir -p "$XDG_RUNTIME_DIR"
 [ -S "$XDG_RUNTIME_DIR/bus" ] || dbus-daemon --session --address="unix:path=$XDG_RUNTIME_DIR/bus" &
 
 game_cmd() {
   case "$1" in
-    silksong)  echo '"/storage/roms/ports/Hollow Knight Silksong (nx2linux).sh"' ;;
+    silksong)    echo 'DATA=/storage/nx2linux/silksong /storage/nx2linux/launch.sh' ;;
+    hollowknight) echo 'DATA=/storage/nx2linux/hollowknight /storage/nx2linux/launch.sh' ;;
     retroarch) echo 'retroarch' ;;
     *) return 1 ;;
   esac

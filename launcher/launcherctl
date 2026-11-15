@@ -1,19 +1,19 @@
 #!/bin/sh
-# launcherctl start|stop|restart|es: the Flip 2 launcher supervisor (supervisor.sh) in place of EmulationStation, or EmulationStation back.
-DIR="$(cd "$(dirname "$0")" && pwd)"; PID=/run/nx2l-supervisor.pid
-stop() {
-  [ -f "$PID" ] && kill "$(cat "$PID")" 2>/dev/null; rm -f "$PID"
-  for p in $(pidof pocket-flip2); do kill -TERM "$p"; done
-  sleep 1
-}
-start() {
-  systemctl stop essway.service sway.service 2>/dev/null
-  setsid "$DIR/supervisor.sh" >/dev/null 2>&1 < /dev/null & echo $! > "$PID"
-}
+# launcherctl enable|disable|start|stop|es
+#   enable:  at boot ROCKNIX starts the launcher instead of EmulationStation (the unit in /storage/.config/system.d, profile.d/099-nx2l sets UI_SERVICE)
+#   disable: EmulationStation at boot again (both files removed)
+#   start, stop: the launcher now (it stops sway and EmulationStation: the unit conflicts with them)
+#   es: EmulationStation now (it stops the launcher)
+DIR="$(cd "$(dirname "$0")" && pwd)"
+UNIT=/storage/.config/system.d/nx2l-launcher.service PROFILE=/storage/.config/profile.d/099-nx2l
 case "$1" in
-  start) start ;;
-  stop) stop ;;
-  restart) stop; start ;;
-  es) stop; systemctl start sway.service essway.service ;;
-  *) echo "usage: $0 start|stop|restart|es"; exit 2 ;;
+  enable)
+    cp "$DIR/nx2l-launcher.service" "$UNIT"
+    echo 'UI_SERVICE="nx2l-launcher.service"' > "$PROFILE"
+    systemctl daemon-reload ;;
+  disable) rm -f "$UNIT" "$PROFILE"; systemctl daemon-reload ;;
+  start) systemctl start nx2l-launcher.service ;;
+  stop) systemctl stop nx2l-launcher.service ;;
+  es) systemctl start sway.service essway.service ;;
+  *) echo "usage: $0 enable|disable|start|stop|es"; exit 2 ;;
 esac
