@@ -1,0 +1,26 @@
+#!/bin/sh
+# launcherctl enable|disable|start|stop
+#   enable:  at boot ROCKNIX starts the launcher instead of EmulationStation (the unit in /storage/.config/system.d, profile.d/099-nx2l sets UI_SERVICE),
+#            and EmulationStation can no longer start: emustation.service is masked, and essway.service gets a drop-in whose condition never
+#            holds (ROCKNIX's 111-sway-init unmasks essway at every boot, but leaves drop-ins alone). /usr is read-only: this is ES's removal.
+#   disable: ROCKNIX's own UI_SERVICE and EmulationStation at boot again (all of it removed)
+#   start, stop, restart: the launcher now (the unit conflicts with ROCKNIX's sway and EmulationStation units)
+DIR="$(cd "$(dirname "$0")" && pwd)"
+SYSD=/storage/.config/system.d UNIT=/storage/.config/system.d/nx2l-launcher.service PROFILE=/storage/.config/profile.d/099-nx2l
+case "$1" in
+  enable)
+    cp "$DIR/nx2l-launcher.service" "$UNIT"
+    echo 'UI_SERVICE="nx2l-launcher.service"' > "$PROFILE"
+    ln -sf /dev/null "$SYSD/emustation.service"
+    mkdir -p "$SYSD/essway.service.d"
+    printf '[Unit]\n# nx2l launcher (launcherctl): EmulationStation is not started\nConditionPathExists=/nonexistent/nx2l-no-emulationstation\n' > "$SYSD/essway.service.d/nx2l-off.conf"
+    systemctl daemon-reload ;;
+  disable)
+    rm -f "$UNIT" "$PROFILE" "$SYSD/emustation.service" "$SYSD/essway.service.d/nx2l-off.conf"
+    rmdir "$SYSD/essway.service.d" 2>/dev/null
+    systemctl daemon-reload ;;
+  start) systemctl start nx2l-launcher.service ;;
+  stop) systemctl stop nx2l-launcher.service ;;
+  restart) systemctl restart nx2l-launcher.service ;;
+  *) echo "usage: $0 enable|disable|start|stop|restart"; exit 2 ;;
+esac

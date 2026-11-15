@@ -510,7 +510,7 @@ HLE_FORCE("_ZN2nn3hid28ShowControllerFirmwareUpdateERKNS0_27ControllerFirmwareUp
 // reads them in both (in console mode in screen pixels, hle_touch.c DM_TOUCH_DOCKED)
 int touch_fill_n(void *out, int max, uint64_t now_ns);
 static int touch_on(void) {
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(DM_LINUX)
     return 1;
 #else
     return dm_opmode() == 0;

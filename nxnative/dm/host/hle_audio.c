@@ -228,7 +228,7 @@ static void backend_stop(aout *a) {
     if (a->backend == BK_AU) { AudioOutputUnitStop(a->au); a->backend = BK_NONE; }
     else if (a->backend == BK_NULL) null_stop(a);
 }
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(DM_LINUX)
 #define DM_AUDIO_DEFAULT 1   // the Android app plays through AAudio (android/compat/audiotoolbox_aaudio.c) like the iOS app through RemoteIO
 #else
 #define DM_AUDIO_DEFAULT TARGET_OS_IPHONE
@@ -244,7 +244,7 @@ static void au_go(aout *a, uint64_t now) {
     else if (a->retry_ms < 8000) a->retry_ms *= 2;
     a->retry_at = now + (uint64_t)a->retry_ms * 1000000;
 }
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(DM_LINUX)
 void dm_aaudio_set_device(int32_t id);
 int dm_aaudio_route_stale(AudioUnit u);
 void dm_audio_route_device(int32_t id) {
@@ -272,7 +272,7 @@ static void *au_watchdog(void *p) {
         uint64_t t = now_ns(), gap = t - last; last = t;
         for (int i = 0; i < AOMAX; i++) {
             aout *a = g_aos[i]; if (!a || !a->au) continue;
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(DM_LINUX)
             if (!g_suspended && a->backend == BK_AU && dm_aaudio_route_stale(a->au)) {
                 AudioOutputUnitStop(a->au); a->backend = BK_NONE; au_go(a, t);
             }

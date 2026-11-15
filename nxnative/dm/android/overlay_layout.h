@@ -162,9 +162,10 @@ static const int OVM_TAB_ITEMS[OVM_TABS][OVM_PER_TAB] = {{OVM_OVERLAY, OVM_OPACI
 static const char *const OVM_TAB_NAMES[OVM_TABS] = {"Gamepad", "Game"};
 #define OVM_ROWS (OVM_PER_TAB + 2)   // the tabs, a tab's rows (as many for every tab: the panel keeps its size), Resume
 int dm_menu_audio_available(void);
+int dm_menu_item_available(int item);   // the front end's rows (gfx_vk_present.c: all; front_linux.c: none of the touch gamepad's or the save manager's)
 static inline int ov_menu_item(int tab, int row) {
     int item = row == 0 ? OVM_TAB : row == OVM_ROWS - 1 ? OVM_RESUME : row > 0 && row < OVM_ROWS - 1 ? OVM_TAB_ITEMS[tab & 1][row - 1] : -1;
-    return item == OVM_AUDIO && !dm_menu_audio_available() ? -1 : item;
+    return (item == OVM_AUDIO && !dm_menu_audio_available()) || (item >= 0 && item < OVM_RESUME && !dm_menu_item_available(item)) ? -1 : item;
 }
 #define OV_MENU_ROW 0.115f   // row height, of the window's height
 #define OV_MENU_W 0.95f      // panel width, of the window's height

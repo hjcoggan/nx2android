@@ -4,7 +4,9 @@
 // DM_VK_SHOT_DIR (default DM_ROOT), which is how a run without a screen is checked.
 #include "gfx_vk.h"
 #include <android/native_window.h>
+#ifdef __ANDROID__
 #include <jni.h>
+#endif
 #include <string.h>
 #include <math.h>
 #include <time.h>
@@ -70,6 +72,7 @@ __attribute__((weak)) void dm_overlay_knob(int stick, float *dx, float *dy) { (v
 __attribute__((weak)) int64_t dm_overlay_pressed(int ctl, uint64_t bit) { (void)ctl; (void)bit; return 0; }
 __attribute__((weak)) int dm_menu_state(void) { return -1; }
 __attribute__((weak)) int dm_menu_audio_available(void) { return 0; }
+__attribute__((weak)) int dm_menu_item_available(int item) { (void)item; return 1; }
 __attribute__((weak)) int dm_overlay_fps(void) { return 0; }   // front_android.c: the pause menu's Show FPS
 __attribute__((weak)) int dm_save_note(char *out, int cap) { if (cap > 0) out[0] = 0; return OVX_IDLE; }   // front_android.c: the save manager's rows
 __attribute__((weak)) int dm_save_rows(ov_srow rows[OVM_ROWS]) { (void)rows; return 0; }
@@ -169,8 +172,12 @@ static int swap_make(void) {
     int ww = ANativeWindow_getWidth(w), wh = ANativeWindow_getHeight(w);
     if (g_swap && ww > 0 && wh > 0 && ((uint32_t)ww != g_sext.width || (uint32_t)wh != g_sext.height)) swap_destroy();
     if (g_swap) return 1;
+#ifdef DM_LINUX
+    if (!dm_front_vk_surface(V.inst, &g_surf)) return 0;   // the SDL window's surface (front_linux.c)
+#else
     VkAndroidSurfaceCreateInfoKHR si = {VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR, NULL, 0, w};
     if (vkCreateAndroidSurfaceKHR(V.inst, &si, NULL, &g_surf)) return 0;
+#endif
     VkSurfaceCapabilitiesKHR caps; vkGetPhysicalDeviceSurfaceCapabilitiesKHR(V.pd, g_surf, &caps);
     uint32_t nf = 0; vkGetPhysicalDeviceSurfaceFormatsKHR(V.pd, g_surf, &nf, NULL); VkSurfaceFormatKHR sf[32]; if (nf > 32) nf = 32; vkGetPhysicalDeviceSurfaceFormatsKHR(V.pd, g_surf, &nf, sf);
     g_sfmt = sf[0].format; for (uint32_t i = 0; i < nf; i++) if (sf[i].format == VK_FORMAT_R8G8B8A8_UNORM) g_sfmt = sf[i].format;
@@ -498,6 +505,7 @@ static void ov_panel(int st) {   // the pause menu, the text entry or the layout
     else ov_menu_panel(&cv, st);
 }
 // The phone window uses the same menu raster as Vulkan, independently of the external swapchain.
+#ifdef __ANDROID__
 JNIEXPORT jint JNICALL Java_org_nx2a_ExternalActivity_externalMenuState(JNIEnv *env, jclass cls) { (void)env; (void)cls; return dm_menu_state(); }
 JNIEXPORT jintArray JNICALL Java_org_nx2a_ExternalActivity_externalMenuPixels(JNIEnv *env, jclass cls, jint W, jint H, jint st) {
     (void)cls;
@@ -520,6 +528,7 @@ JNIEXPORT jintArray JNICALL Java_org_nx2a_ExternalActivity_externalMenuPixels(JN
     if (out) (*env)->SetIntArrayRegion(env, out, 0, (jsize)(count + 2), argb);
     free(argb); free(pixels); return out;
 }
+#endif
 static void ov_raster(uint8_t *px, uint32_t w, uint32_t h, uint32_t sh) {
     memset(px, 0, (size_t)w * (h + sh) * 4);
     int ts = h > 600 ? 3 : 2;

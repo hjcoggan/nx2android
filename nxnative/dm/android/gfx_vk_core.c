@@ -10,7 +10,7 @@
 #include "gfx_vk.h"
 #include "nvn_hmap.h"
 #include "nvn_dirty.h"
-#include <android/hardware_buffer.h>
+#include <android/hardware_buffer.h>   // (Linux: dm/linux/include, an allocator that always refuses: every pool is copied)
 #include <dlfcn.h>
 #include <errno.h>
 #include <stdatomic.h>
@@ -154,18 +154,22 @@ void vk_init(void) {
         else VKLOG("Vulkan driver %s through adrenotools, not the system's (%s)", drv, dir);
     }
     if (!lib) {
-        if (!(lib = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL))) die("[vk] libvulkan.so: %s", dlerror());
+        if (!(lib = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL)) && !(lib = dlopen("libvulkan.so.1", RTLD_NOW | RTLD_LOCAL))) die("[vk] libvulkan.so: %s", dlerror());
         p_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)dlsym(lib, "vkGetInstanceProcAddr");
     }
     vkCreateInstance = (PFN_vkCreateInstance)p_vkGetInstanceProcAddr(NULL, "vkCreateInstance");
-    const char *iext[] = {"VK_KHR_surface", "VK_KHR_android_surface", "VK_EXT_debug_utils"};
+#ifdef DM_LINUX
+    const char *iext[9]; uint32_t niext = dm_front_vk_instance_exts(iext, 8); iext[niext] = "VK_EXT_debug_utils";   // the window's (SDL), then the validation layer's
+#else
+    const char *iext[] = {"VK_KHR_surface", "VK_KHR_android_surface", "VK_EXT_debug_utils"}; uint32_t niext = 2;
+#endif
     VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO, NULL, "dmhost", 1, "nxnative", 1, VK_API_VERSION_1_3};
     // DM_VK_VALIDATE=1: Khronos's validation layer, which the APK carries only when built with it (mkapk.py --extra-so); its messages go to the log
     int validate = getenv("DM_VK_VALIDATE") && atoi(getenv("DM_VK_VALIDATE"));
     const char *layers[] = {"VK_LAYER_KHRONOS_validation"};
-    VkInstanceCreateInfo ici = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, NULL, 0, &app, validate ? 1u : 0u, layers, validate ? 3u : 2u, iext};
+    VkInstanceCreateInfo ici = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, NULL, 0, &app, validate ? 1u : 0u, layers, validate ? niext + 1 : niext, iext};
     VkResult ir = vkCreateInstance(&ici, NULL, &V.inst);
-    if (ir && validate) { VKLOG("[RED] validation layer not available (%d): running without it", ir); validate = 0; ici.enabledLayerCount = 0; ici.enabledExtensionCount = 2; ir = vkCreateInstance(&ici, NULL, &V.inst); }
+    if (ir && validate) { VKLOG("[RED] validation layer not available (%d): running without it", ir); validate = 0; ici.enabledLayerCount = 0; ici.enabledExtensionCount = niext; ir = vkCreateInstance(&ici, NULL, &V.inst); }
     VKCHK(ir);
     if (validate) {
         PFN_vkCreateDebugUtilsMessengerEXT mk = (PFN_vkCreateDebugUtilsMessengerEXT)p_vkGetInstanceProcAddr(V.inst, "vkCreateDebugUtilsMessengerEXT");
@@ -193,6 +197,11 @@ void vk_init(void) {
                           "VK_EXT_robustness2", "VK_EXT_depth_clip_control", "VK_EXT_provoking_vertex", "VK_EXT_index_type_uint8", "VK_EXT_transform_feedback",
                           "VK_GOOGLE_display_timing"};
     const char *on[64]; uint32_t non = 0;
+#ifdef DM_LINUX
+    // zero-copy pools: Vulkan memory exported as a dma-buf, mapped at the pool's address and imported again (dm/linux/ahb_vk.c)
+    static const char *zc_ext[] = {"VK_KHR_external_memory_fd", "VK_EXT_external_memory_dma_buf"};
+    for (unsigned i = 0; i < 2; i++) if (has_ext(ex, ne, zc_ext[i])) on[non++] = zc_ext[i]; else VKLOG("device has no %s: every memory pool is copied", zc_ext[i]);
+#endif
     for (unsigned i = 0; i < sizeof want / sizeof *want; i++) if (has_ext(ex, ne, want[i])) on[non++] = want[i]; else VKLOG("device has no %s", want[i]);
     // NVN vertex streams step per N instances (gfx_vk_exec.c build_pipeline's divisor state): VK_EXT_vertex_attribute_divisor, or the KHR one (core in Vulkan 1.4, the same
     // structures and type values) on a device that offers only that (the Mali-G715). Not enabled before, while pipelines chained its state all the same (invalid usage)
@@ -376,6 +385,28 @@ static const VkBufferUsageFlags POOL_USAGE0 = VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
     VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 #define POOL_USAGE (POOL_USAGE0 | (V.has_xfb ? VK_BUFFER_USAGE_TRANSFORM_FEEDBACK_BUFFER_BIT_EXT : 0))   // any pool range may be a transform feedback buffer
+// A hardware buffer's memory imported and bound to a new buffer of size bytes with the pools' usage (on failure nothing is left made). *stage names the step that failed
+// for mem_diag_zc. Linux: the "hardware buffer" is Vulkan memory exported as a dma-buf (dm/linux/ahb_vk.c), imported again through its file
+static VkResult ahb_import(AHardwareBuffer *ahb, uint64_t size, VkBuffer *buf, VkDeviceMemory *mem, int *stage) {
+#ifdef DM_LINUX
+    VkExternalMemoryBufferCreateInfo eb = {VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO, NULL, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT};
+    VkBufferCreateInfo bi = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, &eb, 0, size, POOL_USAGE, VK_SHARING_MODE_EXCLUSIVE};
+    *stage = 8; VkResult vr = vkCreateBuffer(V.dev, &bi, NULL, buf); if (vr) { *buf = VK_NULL_HANDLE; return vr; }
+    *stage = 9; if ((vr = dm_ahb_import(ahb, mem))) { vkDestroyBuffer(V.dev, *buf, NULL); *buf = VK_NULL_HANDLE; return vr; }
+#else
+    VkAndroidHardwareBufferPropertiesANDROID ap = {VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID};
+    VkExternalMemoryBufferCreateInfo eb = {VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO, NULL, VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID};
+    VkBufferCreateInfo bi = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, &eb, 0, size, POOL_USAGE, VK_SHARING_MODE_EXCLUSIVE};
+    *stage = 7; VkResult vr = vkGetAndroidHardwareBufferPropertiesANDROID(V.dev, ahb, &ap); if (vr) return vr;
+    *stage = 8; if ((vr = vkCreateBuffer(V.dev, &bi, NULL, buf))) { *buf = VK_NULL_HANDLE; return vr; }
+    VkMemoryDedicatedAllocateInfo ded = {VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO, NULL, VK_NULL_HANDLE, *buf};   // the driver requires a dedicated allocation for an imported AHardwareBuffer
+    VkImportAndroidHardwareBufferInfoANDROID imp = {VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID, &ded, ahb};
+    VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &imp, ap.allocationSize, vk_mem_type(ap.memoryTypeBits, 0, 0)};
+    *stage = 9; if ((vr = vkAllocateMemory(V.dev, &ai, NULL, mem))) { vkDestroyBuffer(V.dev, *buf, NULL); *buf = VK_NULL_HANDLE; *mem = VK_NULL_HANDLE; return vr; }
+#endif
+    *stage = 10; if ((vr = vkBindBufferMemory(V.dev, *buf, *mem, 0))) { vkFreeMemory(V.dev, *mem, NULL); vkDestroyBuffer(V.dev, *buf, NULL); *buf = VK_NULL_HANDLE; *mem = VK_NULL_HANDLE; }
+    return vr;
+}
 static VkResult pool_copied_alloc(vkpool_t *p, uint64_t size, int cached) {
     VkBufferCreateInfo bi = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, NULL, 0, size, POOL_USAGE, VK_SHARING_MODE_EXCLUSIVE};
     VkBuffer b; VkResult r = vkCreateBuffer(V.dev, &bi, NULL, &b); if (r) return r;
@@ -460,7 +491,15 @@ typedef struct slab_t { struct slab_t *next; AHardwareBuffer *ahb; int fd; uint8
                         uint64_t bits[SLAB_SLOTS / 64], fence[SLAB_SLOTS]; } slab_t;   // bits: 1 = slot free; fence: the submission the GPU must have passed before it is taken
 static slab_t *g_slab[SLAB_NCLS]; static pthread_mutex_t g_slab_mu = PTHREAD_MUTEX_INITIALIZER;
 static uint64_t g_slab_used, g_slab_bytes;   // pools placed in slabs so far, slab memory (under g_slab_mu: the pool line)
-static int slab_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_VK_POOL_SLABS"); v = !(e && !atoi(e)); } return v; }
+// Linux (msm, kernel 7.2): an mmap of a dma-buf maps the buffer from its start whatever the offset (msm_gem_fault takes the page from the address's distance to the
+// mapping's start, not from vm_pgoff; dm/linux/probes/dmabuf_offset.c), so a slot mapped at its offset in the slab was the slab's first pages: every small pool of a
+// slab shared one slot's memory and Hades II drew nothing. Slabs are off there (DM_VK_POOL_SLABS=1 for a kernel that maps offsets)
+#ifdef DM_LINUX
+#define DM_ZC_OFFSETS 0
+#else
+#define DM_ZC_OFFSETS 1
+#endif
+static int slab_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_VK_POOL_SLABS"); v = e && *e ? atoi(e) != 0 : DM_ZC_OFFSETS; } return v; }
 static slab_t *slab_new(int c) {   // a slab of class c, allocated and imported (no lock held)
     uint64_t sb = (uint64_t)SLAB_PAGES[c] << 12; uint32_t n = 64;
     if (sb * n < (2u << 20)) n = (uint32_t)((2u << 20) / sb); if (sb * n > (8u << 20)) n = (uint32_t)((8u << 20) / sb); if (n > SLAB_SLOTS) n = SLAB_SLOTS;
@@ -475,18 +514,7 @@ static slab_t *slab_new(int c) {   // a slab of class c, allocated and imported 
     }
     if (nfd >= 1) { s->fd = fds[0]; for (int i = 1; i < nfd; i++) close(fds[i]); }
     s->map = s->fd >= 0 ? mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, s->fd, 0) : MAP_FAILED;
-    VkAndroidHardwareBufferPropertiesANDROID ap = {VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID};
-    VkExternalMemoryBufferCreateInfo eb = {VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO, NULL, VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID};
-    VkBufferCreateInfo bi = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, &eb, 0, size, POOL_USAGE, VK_SHARING_MODE_EXCLUSIVE};
-    int ok = s->map != MAP_FAILED && !vkGetAndroidHardwareBufferPropertiesANDROID(V.dev, s->ahb, &ap) && !vkCreateBuffer(V.dev, &bi, NULL, &s->buf);
-    if (ok) {
-        VkMemoryDedicatedAllocateInfo ded = {VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO, NULL, VK_NULL_HANDLE, s->buf};
-        VkImportAndroidHardwareBufferInfoANDROID imp = {VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID, &ded, s->ahb};
-        VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &imp, ap.allocationSize, vk_mem_type(ap.memoryTypeBits, 0, 0)};
-        ok = !vkAllocateMemory(V.dev, &ai, NULL, &s->mem);
-        if (ok && vkBindBufferMemory(V.dev, s->buf, s->mem, 0)) { vkFreeMemory(V.dev, s->mem, NULL); ok = 0; }
-        if (!ok) vkDestroyBuffer(V.dev, s->buf, NULL);
-    }
+    int stage, ok = s->map != MAP_FAILED && !ahb_import(s->ahb, size, &s->buf, &s->mem, &stage);
     if (!ok) {
         static int said; if (!said++) VKLOG("[RED] memory pool slab of %llu KB could not be made: small pools get hardware buffers of their own", (unsigned long long)(size >> 10));
         if (s->map != MAP_FAILED) munmap(s->map, size); if (s->fd >= 0) close(s->fd); AHardwareBuffer_release(s->ahb); free(s); return NULL;
@@ -619,20 +647,9 @@ static int pool_zero_copy(vkpool_t *p, uint8_t *mem, uint64_t size, int lazy, co
     if (rc) { p->left = zc_unplace(mem, done, lazy, in); ZC_DROP(); return rc == 1 || rc == 2 ? rc : -1; }   // (a slice swapped before the failing one goes back first)
 #undef ZC_DROP
     if (reuse) { p->buf = re.buf; p->mem = re.mem; p->ahb = ahb; p->zero_copy = 1; return 0; }   // imported already
-    VkAndroidHardwareBufferPropertiesANDROID ap = {VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID};
-    VkExternalMemoryBufferCreateInfo eb = {VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO, NULL, VK_EXTERNAL_MEMORY_HANDLE_TYPE_ANDROID_HARDWARE_BUFFER_BIT_ANDROID};
-    VkBufferCreateInfo bi = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, &eb, 0, size, POOL_USAGE, VK_SHARING_MODE_EXCLUSIVE};
-    VkResult vr = vkGetAndroidHardwareBufferPropertiesANDROID(V.dev, ahb, &ap);
-    if (vr) mem_diag_zc(7, "vkGetAndroidHardwareBufferPropertiesANDROID", size, "VkResult", vr);
-    else if ((vr = vkCreateBuffer(V.dev, &bi, NULL, &p->buf))) { mem_diag_zc(8, "vkCreateBuffer", size, "VkResult", vr); p->buf = VK_NULL_HANDLE; }
-    else {
-        VkMemoryDedicatedAllocateInfo ded = {VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO, NULL, VK_NULL_HANDLE, p->buf};   // the driver requires a dedicated allocation for an imported AHardwareBuffer
-        VkImportAndroidHardwareBufferInfoANDROID imp = {VK_STRUCTURE_TYPE_IMPORT_ANDROID_HARDWARE_BUFFER_INFO_ANDROID, &ded, ahb};
-        VkMemoryAllocateInfo ai = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &imp, ap.allocationSize, vk_mem_type(ap.memoryTypeBits, 0, 0)};
-        if ((vr = vkAllocateMemory(V.dev, &ai, NULL, &p->mem))) { mem_diag_zc(9, "vkAllocateMemory", size, "VkResult", vr); p->mem = VK_NULL_HANDLE; }
-        else if ((vr = vkBindBufferMemory(V.dev, p->buf, p->mem, 0))) { mem_diag_zc(10, "vkBindBufferMemory", size, "VkResult", vr); vkFreeMemory(V.dev, p->mem, NULL); p->mem = VK_NULL_HANDLE; }   // (as slab_new)
-        if (vr) { vkDestroyBuffer(V.dev, p->buf, NULL); p->buf = VK_NULL_HANDLE; }
-    }
+    int stage; VkResult vr = ahb_import(ahb, size, &p->buf, &p->mem, &stage);
+    if (vr) { static const char *const what[] = {[7] = "vkGetAndroidHardwareBufferPropertiesANDROID", [8] = "vkCreateBuffer", [9] = "vkAllocateMemory", [10] = "vkBindBufferMemory"};
+              mem_diag_zc(stage, what[stage], size, "VkResult", vr); }
     if (vr) { p->left = zc_unplace(mem, size, lazy, in); AHardwareBuffer_release(ahb); return -2; }   // the pool's pages back off the buffer before it goes
     p->ahb = ahb; p->zero_copy = 1;
     return 0;
@@ -681,6 +698,7 @@ int vk_pool_remap_ro(void *mem, size_t len) {
                 uint64_t ql = q->lo > a ? q->lo : a, qh = q->hi < p->hi ? q->hi : p->hi;
                 if (ql < lo) { lo = ql; hi = qh; } else if (ql == lo && qh > hi) hi = qh;
             }
+            if (lo > a && !DM_ZC_OFFSETS && a - p->lo + p->boff) { rc = -1; break; }   // a piece past an inner pool: no offset mapping here (slab_on)
             if (lo > a) { void *at = (void *)(uintptr_t)a; rc = mmap(at, lo - a, PROT_READ, MAP_SHARED | MAP_FIXED, fd, (off_t)(a - p->lo + p->boff)) == at ? 0 : -1; mapped |= !rc; }
             a = hi;
         }
@@ -731,7 +749,8 @@ static uint64_t g_zc_bytes, g_cp_bytes, g_lazy_total, g_lazy_bytes, g_used_bytes
 // and are backed when made).
 // DM_VK_ZEROCOPY_LAZY: 0, none; 1, also the chunks of pools over ZC_CHUNK (Pokopia on the Thor; the big pools of Xenoblade Chronicles 3, Tears of the Kingdom and
 // 13 Sentinels are not measured with it); 2, every page-aligned pool on any device. Unset: none, or the pools of one chunk where the CPU reads hardware buffers uncached
-static int zc_lazy_mode(void) { static int v = -2; if (v == -2) { const char *e = getenv("DM_VK_ZEROCOPY_LAZY"); v = e && *e ? atoi(e) : -1; } return v; }
+// (Linux: off unless asked for. A lazy pool is swapped 16 MB at a time, and its slices past the first map the dma-buf at an offset, which msm ignores: see slab_on)
+static int zc_lazy_mode(void) { static int v = -2; if (v == -2) { const char *e = getenv("DM_VK_ZEROCOPY_LAZY"); v = e && *e ? atoi(e) : DM_ZC_OFFSETS ? -1 : 0; } return v; }
 // Where the CPU reads hardware buffers uncached, the pools of one chunk are lazy (DM_VK_ZEROCOPY_LAZY unset or 1): a pool the GPU never uses (command memory, shader code,
 // texture and sampler descriptors, which the replay reads and the GPU does not) keeps the CPU's cached pages, and one it uses is backed the first time. On a Retroid
 // Pocket 5 (Adreno 650, Android 13, kernel 4.19) every BLOB hardware buffer, whatever its CPU usage, and every Vulkan memory type, HOST_CACHED included, read at

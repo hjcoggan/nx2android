@@ -14,6 +14,13 @@
 #include "dm.h"
 #include "nvn_obj.h"
 #include "nvn_mtl.h"
+#ifdef DM_LINUX
+// front_linux.c: the instance extensions the window's surface needs (at most cap of them, the count returned; none without a window) and the surface itself (1 made)
+uint32_t dm_front_vk_instance_exts(const char **out, uint32_t cap);
+int dm_front_vk_surface(VkInstance inst, VkSurfaceKHR *out);
+// dm/linux/ahb_vk.c: a hardware buffer's memory imported again through its dma-buf
+VkResult dm_ahb_import(AHardwareBuffer *ahb, VkDeviceMemory *out);
+#endif
 
 #define VKLOG(...) LOG("[vk] " __VA_ARGS__)
 #define VKRED_ONCE(id, ...) do { static int once_##id; if (!once_##id++) LOG("[RED] [vk] " __VA_ARGS__); } while (0)

@@ -19,6 +19,7 @@ def _parser():
     po.add_argument('--app-name', default='', help='the app\'s name on the device (default: the game\'s name)')
     po.add_argument('--install', action='store_true', help='install on the connected device afterwards')
     po.add_argument('--device', default='', help='adb serial of the device to install on')
+    po.add_argument('--ssh', default=os.environ.get('NX2A_SSH', ''), help='user@host of an arm64 Linux device: the game\'s own Oodle decoder runs there in the Linux host (dm/linux) instead of on an adb device')
     po.add_argument('--replace-signer', action='store_true', help='uninstall an app of the same package signed with another key first (deletes its saves)')
     po.add_argument('--debug', action='store_true', help='a development build: debug information, debuggable, DM_CTL key presses')
     po.add_argument('--experimental', action='store_true', help='try a game not ported to Android yet (a profile guessed from a survey of its files; it may not start)')
@@ -169,7 +170,7 @@ def cmd_port(a):
     try: install.romfs_target(a.romfs_at)   # a folder the app cannot read fails now, not after the shaders
     except BuildError as e: print(e, file=sys.stderr); return 2
     opts = pipeline.Options(folder=Path(a.folder), keys=Path(a.keys) if a.keys else None, firmware=Path(a.firmware) if a.firmware else None, out=Path(a.out) if a.out else None, version=a.version, language=a.language,
-                            app_name=a.app_name, install=a.install, device=a.device, replace_signer=a.replace_signer, debug=a.debug, experimental=a.experimental, package=a.package, fps60=a.fps60, touch=a.touch, mt_replay=a.mt_replay, vulkan_driver=a.vulkan_driver, shared_font=a.shared_font,
+                            app_name=a.app_name, install=a.install, device=a.device, ssh=a.ssh, replace_signer=a.replace_signer, debug=a.debug, experimental=a.experimental, package=a.package, fps60=a.fps60, touch=a.touch, mt_replay=a.mt_replay, vulkan_driver=a.vulkan_driver, shared_font=a.shared_font,
                             vercode_offset=offset, alias_headroom=a.alias_headroom, romfs_at=a.romfs_at, romfs_push=a.romfs_push, external_display=a.external_display, native_keyboard=a.native_keyboard, jobs=a.jobs)
     return _with_progress(a.progress, lambda: pipeline.emit_result(pipeline.Port(opts).run()))
 

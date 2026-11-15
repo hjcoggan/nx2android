@@ -27,6 +27,16 @@
 mach_port_t mach_task_self(void) { return getpid(); }
 mach_port_t mach_thread_self(void) { return gettid(); }
 kern_return_t mach_port_deallocate(task_t task, mach_port_t name) { (void)task; (void)name; return KERN_SUCCESS; }
+#ifdef __GLIBC__
+// glibc 2.42 has it; before that only the calling thread's id can be had (the host asks for other threads' ids only in diagnostics)
+#include <dlfcn.h>
+static pid_t dm_gettid_np(pthread_t t) {
+    static pid_t (*f)(pthread_t); static int looked;
+    if (!looked) { f = (pid_t (*)(pthread_t))dlsym(RTLD_DEFAULT, "pthread_gettid_np"); looked = 1; }
+    return f ? f(t) : t == pthread_self() ? gettid() : 0;
+}
+#define pthread_gettid_np dm_gettid_np
+#endif
 mach_port_t pthread_mach_thread_np(pthread_t t) { return pthread_gettid_np(t); }
 int pthread_threadid_np(pthread_t t, uint64_t *id) { *id = (uint64_t)(t ? pthread_gettid_np(t) : gettid()); return 0; }
 int dm_setname_self(const char *name) { char n[16]; snprintf(n, sizeof n, "%s", name); return pthread_setname_np(pthread_self(), n); }
