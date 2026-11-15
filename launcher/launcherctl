@@ -1,9 +1,8 @@
 #!/bin/sh
-# launcherctl enable|disable|start|stop|es
+# launcherctl enable|disable|start|stop
 #   enable:  at boot ROCKNIX starts the launcher instead of EmulationStation (the unit in /storage/.config/system.d, profile.d/099-nx2l sets UI_SERVICE)
-#   disable: EmulationStation at boot again (both files removed)
-#   start, stop: the launcher now (it stops sway and EmulationStation: the unit conflicts with them)
-#   es: EmulationStation now (it stops the launcher)
+#   disable: ROCKNIX's own UI_SERVICE at boot again (both files removed)
+#   start, stop, restart: the launcher now (the unit conflicts with ROCKNIX's sway and EmulationStation units)
 DIR="$(cd "$(dirname "$0")" && pwd)"
 UNIT=/storage/.config/system.d/nx2l-launcher.service PROFILE=/storage/.config/profile.d/099-nx2l
 case "$1" in
@@ -14,6 +13,6 @@ case "$1" in
   disable) rm -f "$UNIT" "$PROFILE"; systemctl daemon-reload ;;
   start) systemctl start nx2l-launcher.service ;;
   stop) systemctl stop nx2l-launcher.service ;;
-  es) systemctl start sway.service essway.service ;;
-  *) echo "usage: $0 enable|disable|start|stop|es"; exit 2 ;;
+  restart) systemctl restart nx2l-launcher.service ;;
+  *) echo "usage: $0 enable|disable|start|stop|restart"; exit 2 ;;
 esac
