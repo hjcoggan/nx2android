@@ -11,7 +11,14 @@ This is the Android port of [nxnative](https://github.com/seedds/nxnative), whic
 
 ## Games
 
-These games play on Android. Tested on a Lenovo Legion Y700 (Snapdragon 8 Elite, Adreno 830), unless a game names another device. The device's GPU must read BC-compressed textures (Adreno, Xclipse; not Mali or PowerVR).
+These games were tested on Linux: a Retroid Pocket Flip 2 (Snapdragon 865, Adreno 650) running ROCKNIX with Mesa's Turnip driver, started from the [MyGo launcher](launcher-mygo/README.md). How to build and run the Linux host: [nxnative/dm/linux](nxnative/dm/linux/README.md).
+
+| | |
+|:---:|:---:|
+| ![Hollow Knight: Silksong](docs/images/hollow-knight-silksong.jpg)<br>Hollow Knight: Silksong<br><sub>`v0.3.0` · Retroid Pocket Flip 2 (ROCKNIX)</sub> | ![Hades II](docs/images/hades-ii.jpg)<br>Hades II<br><sub>`v0.3.0` · Retroid Pocket Flip 2 (ROCKNIX)</sub> |
+| Hollow Knight<br><sub>`v0.3.0` · Retroid Pocket Flip 2 (ROCKNIX)</sub> | |
+
+<!-- Games played on Android but not tested on Linux yet; hidden until they are.
 
 | | |
 |:---:|:---:|
@@ -44,6 +51,7 @@ These games play on Android. Tested on a Lenovo Legion Y700 (Snapdragon 8 Elite,
 | ![Unicorn Overlord](docs/images/unicorn-overlord.jpg)<br>Unicorn Overlord<br><sub>`v0.1.3` · update 1.05 · 60 fps · **boots**: saving and a full battle not tested yet</sub> | ![Unpacking](docs/images/unpacking.jpg)<br>Unpacking<br><sub>`v0.1.2` · update 2.01 · 60 fps · played by touch</sub> |
 | ![Untitled Goose Game](docs/images/untitled-goose-game.jpg)<br>Untitled Goose Game<br><sub>`v0.4.0` · update 1.1.2 · 60 fps</sub> | ![Viractal: Will You Trust Your Party?](docs/images/viractal.jpg)<br>Viractal: Will You Trust Your Party?<br><sub>`v0.1.0` · update 1.4.5</sub> |
 | ![Xenoblade Chronicles 3](docs/images/xenoblade-chronicles-3.jpg)<br>Xenoblade Chronicles 3<br><sub>`v0.1.0` · update 2.2.0 · 30 fps · **work in progress**: some effects and models don't draw yet</sub> | ![Xenoblade Chronicles: Definitive Edition](docs/images/xenoblade-chronicles-definitive-edition.jpg)<br>Xenoblade Chronicles: Definitive Edition<br><sub>`v0.4.0` · update 2.0.0 · 30 fps · tested on the AYN Odin 2 with a Turnip driver · **tested to Colony 9**, the pause menu and saving: later maps not checked yet · the scene drops to 896x504 in heavy fights · rarely crashes at boot (restart)</sub> |
+-->
 
 The tag (`v0.1.3`) is the latest nx2android version the game was tested on. Older games are not tested again for each release: if a later version breaks one, a patch release fixes it. A tag newer than the [latest release](https://github.com/shirai91/nx2android/releases/latest) is the next release, and the game needs the development checkout until it ships.
 
