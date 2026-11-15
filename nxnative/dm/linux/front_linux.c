@@ -141,6 +141,8 @@ int main(int argc, char **argv) {
     snprintf(p, sizeof p, "%s/temp", g_root); mkdir(p, 0700); setenv("DM_TEMP", p, 0);
     snprintf(p, sizeof p, "%s/shaders.dmsv", g_root); setenv("DM_VK_SHADERS", p, 0);
     snprintf(p, sizeof p, "%s/env.txt", g_root); env_file(p);
+    // porter writes the Android app's path for the button-icon font: the pack's own copy here
+    { const char *f = getenv("DM_SHARED_FONT_EXT"); if (f && access(f, R_OK)) { snprintf(p, sizeof p, "%s/nintendo_ext.ttf", g_root); setenv("DM_SHARED_FONT_EXT", p, 1); } }
 #ifdef DM_RELEASE
     unsetenv("DM_CTL");
 #endif
