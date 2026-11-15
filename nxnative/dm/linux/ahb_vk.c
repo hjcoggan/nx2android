@@ -1,6 +1,6 @@
 // Linux build: the AHardwareBuffer calls of the zero-copy memory pools (gfx_vk_core.c) on Vulkan memory exported as a dma-buf.
-// AHardwareBuffer_allocate allocates device memory the CPU sees cached and coherent where the driver has it (Turnip on Adreno 650: DEVICE_LOCAL | HOST_VISIBLE |
-// HOST_COHERENT | HOST_CACHED) and exports it; the backend mmaps the dma-buf over the pool's pages (MAP_SHARED | MAP_FIXED) and imports it again as a buffer's
+// AHardwareBuffer_allocate allocates device memory the CPU sees coherent (write-combined by default: see ready) and exports it; the backend mmaps the dma-buf
+// over the pool's pages (MAP_SHARED | MAP_FIXED) and imports it again as a buffer's
 // memory (dm_ahb_import, through gfx_vk_core.c ahb_import), so the game's pointer is the GPU's memory, as AHardwareBuffer does on Android.
 #include "gfx_vk.h"
 #include <android/hardware_buffer.h>
@@ -20,7 +20,16 @@ static int ready(void) {
     p_get_fd = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(V.dev, "vkGetMemoryFdKHR");
     p_fd_props = (PFN_vkGetMemoryFdPropertiesKHR)vkGetDeviceProcAddr(V.dev, "vkGetMemoryFdPropertiesKHR");
     const VkMemoryPropertyFlags hv = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    for (int pass = 0; pass < 2 && g_type == UINT32_MAX; pass++)   // cached first: the CPU reads the game's own memory through this mapping
+    // A type without HOST_CACHED (write-combined) by default. Turnip on Adreno 650 offers DEVICE_LOCAL | HOST_VISIBLE | HOST_COHERENT | HOST_CACHED, but through the
+    // dma-buf's own mapping the GPU missed what the CPU had written: Silksong's dialogue text came out black (its colour read as 0). The CPU reads this memory at
+    // ~1.8 GB/s against ~23 GB/s for malloc, so gfx_vk_core.c zc_uncached keeps pools lazy (cached pages until the GPU first uses them), as on a Retroid Pocket 5.
+    // DM_VK_ZC_CACHED=1: the cached type, for a driver whose mapping is coherent
+    const char *e = getenv("DM_VK_ZC_CACHED"); int cached = e && atoi(e);
+    for (uint32_t i = 0; i < V.mem.memoryTypeCount && !cached; i++) {
+        VkMemoryPropertyFlags f = V.mem.memoryTypes[i].propertyFlags;
+        if ((f & (hv | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) == (hv | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) && !(f & VK_MEMORY_PROPERTY_HOST_CACHED_BIT)) { g_type = i; break; }
+    }
+    for (int pass = 0; pass < 2 && g_type == UINT32_MAX; pass++)
         for (uint32_t i = 0; i < V.mem.memoryTypeCount; i++) {
             VkMemoryPropertyFlags f = V.mem.memoryTypes[i].propertyFlags, want = hv | (pass ? 0 : VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
             if ((f & want) == want && (f & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) { g_type = i; break; }
