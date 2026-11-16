@@ -26,6 +26,21 @@ static uint8_t *g_stack; static size_t g_stack_cap;
 // The address lies in the guest address block (every guest thread stack is here: the game's own heap or the stack region); the big-stack entry (hle_bigstack.c) uses it to decide whether to switch stacks
 int dm_guest_as_contains(uintptr_t a) { uintptr_t b = (uintptr_t)g_as; return g_as && a >= b && a - b < RESERVE; }
 
+// Horizon gives an application a 39-bit address space, and games pack pointers on that: Pokémon Legends: Z-A keeps object pointers in 47-bit fields with tag bits
+// above (0x3ffffe06217320 decoded to 0x7ffe06217348, main+0x18064f0 SIGSEGV). Android on the Y700 has a 39-bit user range; a 48-bit Linux kernel (ROCKNIX) puts
+// mmap(NULL) near 2^48, so guest memory is placed upward from 64 GB by hint (free there: the executable, libraries and the heap sit near the top)
+void *dm_mmap_guest(size_t n, int prot, int flags) {
+#if defined(DM_LINUX)
+    static _Atomic uintptr_t next = 0x1000000000ull;
+    uintptr_t h = atomic_fetch_add(&next, (n + 0x3fffffffull) & ~0x3fffffffull);
+    void *p = mmap((void *)h, n, prot, flags, -1, 0);
+    if (p != MAP_FAILED && (uintptr_t)p + n > (1ull << 39)) LOG("[RED] guest mapping +%#zx at %p, above the 39-bit range the game may assume", n, p);
+    return p;
+#else
+    return mmap(NULL, n, prot, flags, -1, 0);
+#endif
+}
+
 static void *alias_windows_thread(void *arg);
 static void mem_init(void) {
     if (g_as) return;
@@ -37,7 +52,7 @@ static void mem_init(void) {
     // after its ~1 GB node area), so where they fit in the alias region depended on the address ASLR gave the block: NEO's nninitStartup aborted in
     // StandardAllocator::Initialize on some runs and not on others. 64-bit Android has the address space to over-reserve by 1 GB and trim
     {   const size_t A = 1ull << 30;
-        uint8_t *r = mmap(NULL, RESERVE + A, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0);
+        uint8_t *r = dm_mmap_guest(RESERVE + A, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE);
         if (r == MAP_FAILED) die("reserve guest AS");
         uint8_t *al = (uint8_t *)((((uintptr_t)r + 0x10000000 + A - 1) & ~(uintptr_t)(A - 1)) - 0x10000000);
         if (al > r) munmap(r, (size_t)(al - r));
