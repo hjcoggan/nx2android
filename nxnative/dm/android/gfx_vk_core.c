@@ -790,6 +790,22 @@ static int zc_uncached(void) {
 // DM_VK_ZEROCOPY_MAX_MB=<n>: pools bigger than n MB are copied, not zero-copy, and kept whole (a copied pool takes no hardware buffer, so no chunks). The Legion Y700
 // 2023's gralloc aborts the process (no error returned) allocating a hardware buffer for Unicorn Overlord's 860 MB pool, while its pools up to 250 MB are fine
 static int zc_over(uint64_t size) { static uint64_t m = 1; if (m == 1) { const char *e = getenv("DM_VK_ZEROCOPY_MAX_MB"); m = e && atoi(e) > 0 ? (uint64_t)atoi(e) << 20 : 0; } return m && size > m; }
+// Linux: a pool the CPU cannot access (NVN CPU_NO_ACCESS, not COMPRESSIBLE) is copied, its GPU copy in the driver's own memory. On ROCKNIX (Adreno 650, Turnip 26.2,
+// msm, kernel 7.2) the GPU drew wrong data from such pools through their dma-buf: Pokémon Legends: Z-A's language and profile screens with a black background, their
+// title boxes white or doubled and their labels missing. Copying only those pools drew them right at 60 fps (16.7 ms frames, against 35 ms with its small pools copied
+// instead); copying the CPU-uncached (0x22) and shader code (0x62) pools changed nothing. The imported memory held the CPU's bytes (the driver's own mapping of it) and a
+// queue wait after each submission, TU_DEBUG=flushall or the cached memory type drew the same, so the driver's use of imported memory is the suspect, not found.
+// COMPRESSIBLE pools (render targets, Z-A's 490 MB one) stay zero-copy: they drew right, and a copy would double them. DM_VK_ZC_NO_ACCESS=1 keeps all of them zero-copy
+static int g_next_flags = -1;   // the NVN flags of the pool being made (vk_pool_next_flags, under the replay lock)
+void vk_pool_next_flags(int flags) { g_next_flags = flags; }
+static int zc_no_access_copied(void) {
+#if defined(DM_LINUX)
+    static int v = -1; if (v < 0) { const char *e = getenv("DM_VK_ZC_NO_ACCESS"); v = !(e && atoi(e)); }
+    return v && g_next_flags >= 0 && (g_next_flags & 0x1) && !(g_next_flags & 0x80);
+#else
+    return 0;
+#endif
+}
 static int zc_off(void) { static int v = -1; if (v < 0) v = getenv("DM_VK_NO_ZEROCOPY") != NULL; return v; }   // DM_VK_NO_ZEROCOPY (set at all): every pool copied
 void mtl_pool_add(const void *mem, uint64_t size) {
     vk_init();
@@ -851,9 +867,9 @@ static void pool_add_one(const void *mem, uint64_t size, uint64_t base, uint64_t
     for (int j = 0; j < g_npool && !inner; j++) inner = g_pool[j].zero_copy && g_pool[j].base != base && g_pool[j].lo < p->hi && g_pool[j].hi > p->lo;
     pthread_rwlock_unlock(&g_pool_mu);
     if (!inner) pthread_mutex_unlock(&g_nest_mu);
-    int zc = ((uintptr_t)mem & 0xfff) || (size & 0xfff) ? -3 : zc_off() ? -4 : zc_over(end - base) ? -5 : lazy ? (p->lazy = 1, 0) : pool_zero_copy(p, (uint8_t *)mem, size, 0, NULL);
+    int zc = ((uintptr_t)mem & 0xfff) || (size & 0xfff) ? -3 : zc_off() ? -4 : zc_over(end - base) ? -5 : zc_no_access_copied() ? -7 : lazy ? (p->lazy = 1, 0) : pool_zero_copy(p, (uint8_t *)mem, size, 0, NULL);
     if (zc) {
-        static int said; if (!said++) VKLOG("[RED] memory pool %p +%#llx could not be zero-copy (%d): a GPU copy is refreshed before each submission (slow)", mem, (unsigned long long)size, zc);
+        static int said; if (zc != -7 && !said++) VKLOG("[RED] memory pool %p +%#llx could not be zero-copy (%d): a GPU copy is refreshed before each submission (slow)", mem, (unsigned long long)size, zc);
         const char *e = getenv("DM_VK_POOL_CACHED"); int cached = e && atoi(e);
         VkResult r = VK_ERROR_FEATURE_NOT_PRESENT;
         if (cached && vkFlushMappedMemoryRanges && vkInvalidateMappedMemoryRanges) r = pool_copied_alloc(p, size, 1);
@@ -1137,6 +1153,8 @@ static void pools_copy_back(const struct vksub *s) {
     uint64_t invalidate_ns = 0, invalidate_calls = 0, invalidate_bytes = 0;
     pthread_rwlock_rdlock(&g_pool_mu);
     for (int i = 0; i < g_npool; i++) { vkpool_t *p = &g_pool[i]; if (!p->shadow || !p->synced) continue;
+        // a pool the CPU cannot access (NVN CPU_NO_ACCESS) is never read back: merging it whole after each submission, with its baseline copied again before each, cost Z-A 28 ms a frame
+        if (p->flags & 0x1) { p->baseline_complete = 1; continue; }
         uint64_t first = 0, last = p->hi - p->lo;
         // Mali: full invalidation took 13 ms per submission; eligible ranges cover every GPU write.
         // Other shadow bytes stay unchanged; the next sync overwrites whole dirty blocks before snapshotting them.
