@@ -82,6 +82,7 @@ void dm_tsd_set(pthread_key_t k, const void *v);
 void *dm_tsd_get(pthread_key_t k);
 #endif
 
+void *dm_mmap_guest(size_t n, int prot, int flags);   // anonymous mapping for guest-visible memory (modules, the guest address block): below 2^39 as on Horizon (hle_svc.c)
 void load_modules(const char *dir, const char **names, int n);
 void run_module_inits(void);
 module_t *nro_find(const uint8_t sha256[32]);   // the mapped NRO with this hash (loader.c)
